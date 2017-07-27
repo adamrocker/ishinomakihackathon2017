@@ -1,0 +1,10 @@
+*.pyc
+.DS_Store
+*~
+*.swp
+*.map
+.sass-cache
+.idea/
+node_modules
+.python-version
+
