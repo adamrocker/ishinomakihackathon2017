@@ -179,26 +179,35 @@ def main3():
 class Genome(object):
 
     NUM_FEATURE = 3
-    NUM_HIDDEN_NODE = [4, 3]  # 各レイヤーのノード数
+    NUM_HIDDEN_NODE = [2]  # 各レイヤーのノード数
     NUM_HIDDEN = len(NUM_HIDDEN_NODE)  # レイヤー数
     NUM_OUTPUT = 2
     ARRAY = [NUM_FEATURE] + NUM_HIDDEN_NODE + [NUM_OUTPUT]
-
+    LAYER = len(ARRAY) - 1
+    GENE_LENGTH = -1
     MUTATION_RATE = 0.01
 
-    def __init__(self, mutation_rate=None):
+    @classmethod
+    def gene_length(cls):
+        if 0 <= cls.GENE_LENGTH:
+            return cls.GENE_LENGTH
+
         length = 0
-        for index, i in enumerate(Genome.ARRAY[0: -1]):
-            length += i * Genome.ARRAY[index + 1]
+        for index, i in enumerate(cls.ARRAY[0: -1]):
+            length += i * cls.ARRAY[index + 1]
+        cls.GENE_LENGTH = length
+        return cls.GENE_LENGTH
 
-        self.__gene = np.random.rand(length).astype(np.float32) - np.random.rand(length).astype(np.float32)
+    def __init__(self, mutation_rate=None):
+        length = self.gene_length()
+        self._gene = np.random.rand(length).astype(np.float32) - np.random.rand(length).astype(np.float32)
         if mutation_rate:
-            self.__mutation_rate = mutation_rate
+            self._mutation_rate = mutation_rate
         else:
-            self.__mutation_rate = 1.0 / length
-        self.__fitness = 0.0
+            self._mutation_rate = 1.0 / length
+        self._fitness = 0.0
 
-    def __gene_layer_offset(self, layer):
+    def _gene_layer_offset(self, layer):
         # layerのスタート地点までのオフセット
         length = 0
         for index, i in enumerate(Genome.ARRAY[0: layer]):
@@ -206,35 +215,55 @@ class Genome(object):
         return length
 
     def gene_layer(self, layer):
-        start = self.__gene_layer_offset(layer)
-        end = self.__gene_layer_offset(layer + 1)
-        return self.__gene[start:end]
+        start = self._gene_layer_offset(layer)
+        end = self._gene_layer_offset(layer + 1)
+        return self._gene[start:end]
 
     def mutate(self):
-        length = len(self.__gene)
+        length = len(self._gene)
         mutate = np.zeros(length).astype(np.float32)
         rand = np.random.rand(length)
         for i in range(length):
-            if rand[i] <= self.__mutation_rate:
+            if rand[i] <= self._mutation_rate:
                 val = np.random.rand() - np.random.rand()
                 print("mutate[%d] = %f" % (i, val))
                 mutate[i] = val
             else:
                 mutate[i] = 0.0
 
-        self.__gene += mutate
+        self._gene += mutate
 
     def set_fitness(self, fitness):
-        self.__fitness = fitness
+        self._fitness = fitness
 
 
 class Population(object):
 
     def __init__(self, size):
-        self.__generation = 0  # 世代数
-        self.__population = []
+        self._generation = 0  # 世代数
+        self._size = size
+        self._population = []
         for i in range(size):
-            self.__population.append(Genome())
+            self._population.append(Genome())
+
+    def get_genome(self, index):
+        # type: (int) -> Genome
+        return self._population[index]
+
+    def flatten(self):
+        size = self._size
+        gene_length = Genome.gene_length()
+        index = 0
+        flat = np.zeros(size * gene_length)
+        for layer in range(Genome.LAYER):
+            for genome in self._population:
+                arr = genome.gene_layer(layer)
+                end = index + len(arr)
+                flat[index:end] = arr
+                index = end
+
+        return flat
+
 
 
 def main(args):
@@ -275,11 +304,6 @@ def main(args):
 
 if __name__ == '__main__':
     # tf.app.run()
-    g = Genome()
-    print(g.__gene)
-    print(g.__gene_layer_offset(1))
-    print(g.__gene_layer_offset(2))
-    print(g.gene_layer(1))
-    print("---- mutate ----")
-    g.mutate()
-    print(g.__gene)
+    p = Population(2)
+    print(p.flatten())
+    print(p.get_genome(0)._gene)
