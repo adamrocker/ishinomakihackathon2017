@@ -18,7 +18,8 @@ class TestWorld(unittest.TestCase):
 
     def setUp(self):
         super(TestWorld, self).setUp()
-        self.world = World([[1, 10], [100, 200]], [[10, 11], [12, 13]])
+        self.world = World()
+        self.world.init([np.array([1, 10]), np.array([100, 200])], [np.array([10, 11]), np.array([12, 13])])
         self.world._width = 400
         self.world._height = 400
         self.world._agent_position = [10, 100]
@@ -32,7 +33,7 @@ class TestWorld(unittest.TestCase):
 
     def test_sensor_diff(self):
         data = [([0, 0], [0, 10], (10, math.pi / 2)),
-                ([100, 100], [100, 50], (50, - math.pi / 2))]
+                ([100, 100], [100, 50], (50, 3 * math.pi / 2))]
         for item in data:
             p1 = item[0]
             p2 = item[1]
@@ -58,18 +59,31 @@ class TestWorld(unittest.TestCase):
         rotate = self.world._rotate(1, 1)
         self.assertEqual(rotate, 0)
 
+        rotate = self.world._rotate(0, 1)
+        self.assertEqual(rotate, -math.pi / 18)
+
+        rotate = self.world._rotate(1, 0)
+        self.assertEqual(rotate, math.pi / 18)
+
     def test_move(self):
         self.world.move([1, 1])
         self.assertEqual(self.world._agent_direction, math.pi / 2)
         self.assertEqual(self.world._agent_position, [10, 110])
 
         direction = self.world._agent_direction
-        self.world.move([0, 1])  # rotate PI/2
-        self.assertEqual(self.world._agent_direction, direction - self.world._agent_step_theta)
+        for _ in range(18):  # rotate PI
+            self.world.move([0, 1])
+
+        self.assertEqual(round(self.world._agent_direction, 4), round(math.pi * 3 / 2, 4))
+        self.assertEqual(self.world._agent_position, [10, 110])
+
+        for _ in range(27):  # rotate PI
+            self.world.move([1, 0])
+        self.assertEqual(round(self.world._agent_direction, 4), round(math.pi, 4))
         self.assertEqual(self.world._agent_position, [10, 110])
 
         self.world.move([1, 1])
-        self.assertEqual(self.world._agent_position, [11.74, 119.85])
+        self.assertEqual(self.world._agent_position, [0, 110])
 
     def test_wall_distance(self):
         width = self.world._width
@@ -78,9 +92,10 @@ class TestWorld(unittest.TestCase):
         y = 100
         pos = [x, y]  # agent position
         wall_diff_arr = [self.world._sensor_diff(pos, wall) for wall in [[x, 0], [0, y], [x, height], [width, y]]]
+        self.world._agent_direction = math.pi
         strength, theta, index = self.world._get_min_sensor_diff(wall_diff_arr, 20)
         self.assertEqual(strength, 0.5)
-        self.assertEqual(theta, math.pi)
+        self.assertEqual(theta, 0)
         self.assertEqual(index, 1)
 
     def test_food_distance(self):
@@ -88,14 +103,15 @@ class TestWorld(unittest.TestCase):
         y = 24
         pos = [x, y]  # agent position
         food_diff_arr = [self.world._sensor_diff(pos, food) for food in self.world._foods]
+        self.world._agent_direction = math.pi
         strength, theta, index = self.world._get_min_sensor_diff(food_diff_arr, 20)
         self.assertEqual(round(strength, 3), 0.01)
-        self.assertEqual(theta, -math.pi * 3 / 4)
+        self.assertEqual(theta, -0.5)
         self.assertEqual(index, 0)
 
     def test_meals(self):
         np.random.seed(0)
-        meals = World.meals(2)
+        meals = World.meals(2, 400)
         self.assertEqual(meals[0][0], 219)
         self.assertEqual(meals[0][1], 286)
         self.assertEqual(meals[1][0], 241)

@@ -5,6 +5,7 @@ from __future__ import division
 from __future__ import print_function
 
 import time
+import datetime
 import math
 import sys
 sys.path.append('/lib/python2.7/site-packages')
@@ -18,28 +19,30 @@ def print_debug(msg):
     if False:
         print(msg)
 
-WIDTH = 200
-HEIGHT = 200
+WIDTH = 400
+HEIGHT = 400
 
 SELECTION_SIZE = 2    # 4
 POPULATION_SIZE = 10  # 10
 STEP = 200            # 200
-GENERATION = 1000     # 1000
-NUM_FOOD = 50         # 50
+GENERATION = 10000    # 1000
+NUM_FOOD = 100         # 50
 NUM_POISON = 0        # 0
 MUTATION_BIAS = 0.1
-SENSOR_LENGTH_WALL = 40
-SENSOR_LENGTH_FOOD = 40
-SENSOR_LENGTH_POISON = 40
-AGENT_RADIUS = 5
+SENSOR_LENGTH_WALL = 100
+SENSOR_LENGTH_FOOD = 100
+SENSOR_LENGTH_POISON = 100
+AGENT_RADIUS = 10
+AGENT_STEP_THETA = math.pi / 4
 FOOD_RADIUS = 2
 POISON_RADIUS = 2
+INPUT_BIAS = 0.0
 
 
 class Genome(object):
 
     NUM_FEATURE = 6  # [壁距離, 壁角度, 餌距離, 餌角度, 敵距離, 敵距離]  # それぞれ1つしか認識できない
-    NUM_HIDDEN_NODE = [4]  # 各レイヤーのノード数
+    NUM_HIDDEN_NODE = [2]  # 各レイヤーのノード数
     NUM_HIDDEN = len(NUM_HIDDEN_NODE)  # レイヤー数
     NUM_OUTPUT = 2
     ARRAY = [NUM_FEATURE] + NUM_HIDDEN_NODE + [NUM_OUTPUT]
@@ -177,10 +180,12 @@ class GenePool(object):
         self._nn = None
         self._shuffle_arr = [i for i in range(self._size)]
 
-    def save_population(self):
-        import datetime
-        ts = datetime.datetime.now().strftime("%H%M%S")
-        filename = './data/population_{}_{}.npy'.format(ts, self._generation)
+    @classmethod
+    def build_filename(cls, prefix):
+        return prefix + "_p.npy"
+
+    def save_population(self, ts):
+        filename = './data/{}_{}_p.npy'.format(ts, self._generation)
         population = [[genome._gene, genome.get_fitness()] for genome in self._population]
         np.save(filename, population)
 
@@ -272,7 +277,7 @@ class World(object):
         self._height = HEIGHT
         self._agent_radius = AGENT_RADIUS  # エージェントの半径
         self._agent_speed = 5
-        self._agent_step_theta = math.pi / 18  # (rad) 1stepでの最大回転角度(10度)
+        self._agent_step_theta = AGENT_STEP_THETA  # (rad) 1stepでの最大回転角度(10度)
         self._agent_sensor_strength_wall = SENSOR_LENGTH_WALL
         self._agent_sensor_strength_food = SENSOR_LENGTH_FOOD
         self._agent_sensor_strength_poison = SENSOR_LENGTH_POISON
@@ -283,7 +288,7 @@ class World(object):
         self._poison_radius = POISON_RADIUS
 
     def init(self, foods, poisons):
-        self._agent_position = [200, 200]  # スタート位置
+        self._agent_position = [WIDTH/2, HEIGHT/2]  # スタート位置
         self._agent_direction = 0  # 向いている方向(rad)
         self._agent_fitness = 0
         self._foods = []  # [[1, 1], [1, 2]]  # foodの位置
@@ -294,8 +299,8 @@ class World(object):
             self._poisons.append(list(poison))
 
     @staticmethod
-    def meals(num):
-        arr = np.random.rand(num * 2) * WIDTH
+    def meals(num, length):
+        arr = np.random.rand(num * 2) * length
         meals = np.reshape(arr, (num, 2))
         return meals.astype(np.int32)
 
@@ -319,6 +324,11 @@ class World(object):
         rotate = self._rotate(left, right)
         move_length = self._move_length(left, right)
         self._agent_direction += rotate
+        if math.pi * 2 < self._agent_direction:
+            self._agent_direction = self._agent_direction - math.pi * 2
+        elif self._agent_direction < 0:
+            self._agent_direction = self._agent_direction + math.pi * 2
+
         diff_x = round(move_length * math.cos(self._agent_direction), 2)  # 小数点2桁まで
         diff_y = round(move_length * math.sin(self._agent_direction), 2)  # 小数点2桁まで
         current_x, current_y = self._agent_position
@@ -328,6 +338,7 @@ class World(object):
         next_y = min(self._height, max(0, next_y))
         self._agent_position[self.POSITION_X] = next_x
         self._agent_position[self.POSITION_Y] = next_y
+        # print("[{}, {}] -> [{}, {}]".format(current_x, current_y, next_x, next_y))
         return next_x - current_x, next_y - current_y
 
     def _sensor_diff(self, p1, p2):
@@ -337,9 +348,10 @@ class World(object):
         p2y = p2[self.POSITION_Y]
         distance = math.sqrt((p2x - p1x)**2 + (p2y - p1y)**2)
         radian = math.atan2(p2y - p1y, p2x - p1x)
+        radian = radian if 0 <= radian else 2 * math.pi + radian
         return distance, radian
 
-    def _get_min_sensor_diff(self, target_arr, sensor_length):
+    def _get_min_sensor_diff0(self, target_arr, sensor_length):
         distance, radian = min(target_arr, key=lambda x: x[0])
         sensor_strength = 0.0
         sensor_theta = 0.0
@@ -356,7 +368,34 @@ class World(object):
 
         return sensor_strength, sensor_theta, index
 
-    def eat(self):
+    def _get_min_sensor_diff(self, target_arr, sensor_length):
+        distance = 0
+        radian = 0
+        index = -1
+
+        agent_view_left = self._agent_direction - math.pi / 2
+        agent_view_right = self._agent_direction + math.pi / 2
+
+        for i, item in enumerate(target_arr):
+            d, r = item
+            if sensor_length <= d:
+                continue
+
+            if r <= agent_view_left or agent_view_right <= r:
+                continue
+
+            if index < 0:
+                index = i
+                distance = (sensor_length - d) / sensor_length
+                radian = (self._agent_direction - r) / (math.pi / 2)
+            elif d < distance:
+                index = i
+                distance = (sensor_length - d) / sensor_length
+                radian = (self._agent_direction - r) / (math.pi / 2)
+
+        return distance, radian, index
+
+    def eat(self, print_log=False):
         # エージェントにぶつかったら食べる
         pos = self._agent_position
 
@@ -366,7 +405,8 @@ class World(object):
             food_diff_arr = [self._sensor_diff(pos, food) for food in self._foods]
             fd, fr, findex = self._get_min_sensor_diff(food_diff_arr, eat_area_food)
             if 0 <= findex:
-                # print("agent[{}].eat: food[{}]".format(self._id, findex))
+                if print_log:
+                    print("eat: food[{}]".format(findex))
                 self._foods.pop(findex)
                 self._agent_fitness += self._food_point
 
@@ -376,7 +416,8 @@ class World(object):
             poison_diff_arr = [self._sensor_diff(pos, poison) for poison in self._poisons]
             pd, pr, pindex = self._get_min_sensor_diff(poison_diff_arr, eat_area_poison)
             if 0 <= pindex:
-                # print("agent[{}].eat: poison[{}]".format(self._id, pindex))
+                if print_log:
+                    print("eat: poison[{}]".format(pindex))
                 self._poisons.pop(pindex)
                 self._agent_fitness += self._poison_point
 
@@ -400,7 +441,7 @@ class World(object):
 
         # 毒との距離と角度
         poison_sensor_strength = 0.0
-        poison_sensor_theta = 1.0  # bias
+        poison_sensor_theta = INPUT_BIAS  # bias
         if 0 < len(self._poisons):
             poison_diff_arr = [self._sensor_diff(pos, poison) for poison in self._poisons]
             poison_sensor_strength, poison_sensor_theta, _ = self._get_min_sensor_diff(poison_diff_arr,
@@ -411,17 +452,32 @@ class World(object):
                          poison_sensor_strength, poison_sensor_theta]).astype(np.float32)
 
 
-def run(gp, generation, size, step):
+def save_meal(ts, foods, poisons):
+    filename = './data/{}_m.npy'.format(ts)
+    meals = [foods, poisons]
+    np.save(filename, meals)
+
+
+def load_meal(filename):
+    arr = np.load(filename)
+    foods, poisons = arr
+    return foods, poisons
+
+
+def train(gp, generation, size, step):
+    ts = datetime.datetime.now().strftime("%H%M%S")
     num_food = NUM_FOOD
     num_poison = NUM_POISON
-    foods = World.meals(num_food)
-    poisons = World.meals(num_poison)
+    foods = World.meals(num_food, WIDTH)
+    poisons = World.meals(num_poison, WIDTH)
+    save_meal(ts, foods, poisons)
+
     worlds = [World(i) for i in range(size)]
 
     for i in range(generation):
         print("# Generation: %d" % i)
         if i % 10 == 0:
-            gp.save_population()
+            gp.save_population(ts)
         # gp.print_all_genome()
 
         # init world
@@ -464,9 +520,10 @@ def run(gp, generation, size, step):
             gp.mutation(elite_index=elite_index)
 
 
-def play(gp, size, step, file, index):
-    foods = World.meals(NUM_FOOD)
-    poisons = World.meals(NUM_POISON)
+def play(gp, size, step, file, id, meal_file):
+    foods, poisons = load_meal(meal_file)
+    # foods = World.meals(NUM_FOOD, WIDTH)
+    # poisons = World.meals(NUM_POISON, WIDTH)
     worlds = [World(i) for i in range(size)]
 
     gp.init_world()
@@ -498,20 +555,28 @@ def play(gp, size, step, file, index):
     sess = tf.Session()
     with sess.as_default():
         tf.global_variables_initializer().run()
+        input = np.zeros(Genome.NUM_FEATURE * size)
+
         for _ in range(step):
             # set input array
             start = 0
-            for world in worlds:
+            spy_inpu = None
+            for idx, world in enumerate(worlds):
                 inp = world.sensing()
+                if idx == id:
+                    spy_inpu = inp
+
                 end = start + len(inp)
                 input[start:end] = inp
                 start = end
 
             input_placeholder = np.reshape(input, (size, 1, Genome.NUM_FEATURE))
             command = gp.play(input_placeholder)
-            cmd = command[index]
-            x, y = world[index].move(cmd)
-            world[index].eat()
+            cmd = command[id]
+            x, y = worlds[id].move(cmd)
+            print("in: {}, out: {}".format(spy_inpu, cmd))
+            # print("move=[{}, {}]".format(x, y))
+            worlds[id].eat(print_log=True)
 
             time.sleep(0.1)
             c0.move(agent_tag, x, y)
@@ -522,12 +587,13 @@ def play(gp, size, step, file, index):
 
 def show(filename):
     arr = np.load(filename)
-    for item in arr:
-        print(list(item))
+    for index, item in enumerate(arr):
+        print("{}:{}".format(index, list(item)))
 
 
 tf.app.flags.DEFINE_string("command", "train", "train, play, show")
 tf.app.flags.DEFINE_string("file", "./data/population.npy", "Population file")
+tf.app.flags.DEFINE_string("meal", "./data/population_m.npy", "Meal file")
 tf.app.flags.DEFINE_integer("index", 0, "Agent index")
 
 
@@ -542,9 +608,9 @@ def main(args):
     gp = GenePool(size)
 
     if flags.command == 'train':
-        run(gp, generation, size, step)
+        train(gp, generation, size, step)
     elif flags.command == 'play':
-        play(gp, size, step, flags.file, flags.index)
+        play(gp, size, step, flags.file, flags.index, flags.meal)
     elif flags.command == 'show':
         show(flags.file)
 
