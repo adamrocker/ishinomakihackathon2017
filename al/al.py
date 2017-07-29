@@ -4,6 +4,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import time
 import sys
 sys.path.append('/lib/python2.7/site-packages')
 
@@ -198,31 +199,37 @@ class GenePool(object):
         return
 
 
-def main(args):
-
-    np.random.seed(0)
-
-    generation = 30
-    step = 500  # 各個体が何ステップ動くか
-    size = 200
-    p = GenePool(size)
-    print_debug("---- Genome Info ----")
-    print_debug(p.get_genome(0)._gene)
-
+def run(gp, generation, size, step):
     for i in range(generation):
         print("# Generation: %d" % i)
-        p.init_world()
+        gp.init_world()
         sess = tf.Session()
         with sess.as_default():
             tf.global_variables_initializer().run()
             for _ in range(step):
                 input = np.array([[[1 for _ in range(Genome.NUM_FEATURE)]] for _ in range(size)])
-                output = p.play(input)
+                output = gp.play(input)
 
             # set fitness
-            p.selection()
-            p.mutation()
+            gp.selection()
+            gp.mutation()
+
+
+def main(args):
+    time_start = time.time()
+    np.random.seed(0)
+
+    generation = 30
+    step = 500  # 各個体が何ステップ動くか
+    size = 200  # Population size
+    gp = GenePool(size)
+    run(gp, generation, size, step)
+    time_end = time.time()
+    print("time: {}s".format(time_end - time_start))
 
 
 if __name__ == '__main__':
     tf.app.run()
+
+
+
