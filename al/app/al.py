@@ -18,12 +18,14 @@ def print_debug(msg):
     if False:
         print(msg)
 
+WIDTH = 200
+HEIGHT = 200
 
-SELECTION_SIZE = 4    # 6
-POPULATION_SIZE = 10  # 20
+SELECTION_SIZE = 2    # 4
+POPULATION_SIZE = 10  # 10
 STEP = 200            # 200
 GENERATION = 1000     # 1000
-NUM_FOOD = 100         # 50
+NUM_FOOD = 50         # 50
 NUM_POISON = 0        # 0
 
 
@@ -241,15 +243,12 @@ class World(object):
     POSITION_X = 0
     POSITION_Y = 1
 
-    WIDTH = 400
-    HEIGHT = 400
-
     def __init__(self, id=0):
         self._id = id
-        self._width = World.WIDTH
-        self._height = World.HEIGHT
+        self._width = WIDTH
+        self._height = HEIGHT
         self._agent_radius = 5  # エージェントの半径
-        self._agent_speed = 10
+        self._agent_speed = 5
         self._agent_step_theta = math.pi / 18  # (rad) 1stepでの最大回転角度(10度)
         self._agent_sensor_strength_wall = 20
         self._agent_sensor_strength_food = 20
@@ -273,7 +272,7 @@ class World(object):
 
     @staticmethod
     def meals(num):
-        arr = np.random.rand(num * 2) * World.WIDTH
+        arr = np.random.rand(num * 2) * WIDTH
         meals = np.reshape(arr, (num, 2))
         return meals.astype(np.int32)
 
@@ -377,7 +376,7 @@ class World(object):
 
         # 毒との距離と角度
         poison_sensor_strength = 0.0
-        poison_sensor_theta = 0.0
+        poison_sensor_theta = 1.0  # bias
         if 0 < len(self._poisons):
             poison_diff_arr = [self._sensor_diff(pos, poison) for poison in self._poisons]
             poison_sensor_strength, poison_sensor_theta, _ = self._get_min_sensor_diff(poison_diff_arr,
