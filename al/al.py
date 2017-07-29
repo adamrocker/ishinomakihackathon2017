@@ -11,7 +11,12 @@ sys.path.append('/lib/python2.7/site-packages')
 
 import numpy as np
 import tensorflow as tf
-import random
+
+
+def print_debug(msg):
+    if False:
+        print(msg)
+
 
 N_DIGITS = 10  # Number of digits.
 X_FEATURE = 'x'  # Name of the input feature.
@@ -178,8 +183,8 @@ def main3():
 
 class Genome(object):
 
-    NUM_FEATURE = 3
-    NUM_HIDDEN_NODE = [2]  # 各レイヤーのノード数
+    NUM_FEATURE = 6  # [壁距離, 壁角度, 餌距離, 餌角度, 敵距離, 敵距離]  # それぞれ1つしか認識できない
+    NUM_HIDDEN_NODE = [4]  # 各レイヤーのノード数
     NUM_HIDDEN = len(NUM_HIDDEN_NODE)  # レイヤー数
     NUM_OUTPUT = 2
     ARRAY = [NUM_FEATURE] + NUM_HIDDEN_NODE + [NUM_OUTPUT]
@@ -264,6 +269,43 @@ class Population(object):
 
         return flat
 
+    def eval(self, input):
+        x = tf.placeholder(tf.float32, [self._size, None, Genome.NUM_FEATURE], name="input")
+        genes = self.flatten()
+        print_debug("----genes-----")
+        print_debug(genes)
+
+        start = 0
+        length = self._size * Genome.NUM_FEATURE * Genome.NUM_HIDDEN_NODE[0]
+        c1 = tf.constant(genes[start:length],
+                         dtype=tf.float32,
+                         shape=[self._size, Genome.NUM_FEATURE, Genome.NUM_HIDDEN_NODE[0]],
+                         name="layer1")
+        w1 = tf.Variable(c1)
+        x1 = 2 * tf.nn.sigmoid(tf.matmul(x, w1)) - 1
+        print_debug("----layer1[{}:{}]----".format(start, length))
+        print_debug(genes[start:length])
+
+        start = length
+        length = start + self._size * Genome.NUM_HIDDEN_NODE[0] * Genome.NUM_OUTPUT
+        c2 = tf.constant(genes[start:length],
+                         dtype=tf.float32,
+                         shape=[self._size, Genome.NUM_HIDDEN_NODE[0], Genome.NUM_OUTPUT],
+                         name="layer2")
+        w2 = tf.Variable(c2)
+        x2 = tf.nn.sigmoid(tf.matmul(x1, w2))
+        print_debug("----layer2[{}:{}]----".format(start, length))
+        print_debug(genes[start:length])
+
+        sess = tf.Session()
+        with sess.as_default():
+            tf.global_variables_initializer().run()
+
+            for _ in range(1):
+                fetch = x2.eval(feed_dict={x: input})
+                print_debug("----output----")
+                print_debug(fetch[:, 0])
+            return fetch[:, 0]
 
 
 def main(args):
@@ -282,6 +324,7 @@ def main(args):
                      name="layer1")
     w1 = tf.Variable(c1)
     b1 = tf.Variable(tf.zeros([POPULATION, NUM_HIDDEN1]))
+    # b1 = tf.Variable(bc1)
     # x1 = tf.nn.sigmoid(tf.matmul(x, w1) + b1)
     x1 = tf.matmul(x, w1)
     """
@@ -299,11 +342,26 @@ def main(args):
             batch_xs = np.array([[[1 for _ in range(NUM_FEATURE)]] for _ in range(POPULATION)])
             print (batch_xs)
             fetch = x1.eval(feed_dict={x: batch_xs})
-            print(fetch)
+            # print(fetch)
+            print(fetch[0][0])
+            print(fetch[1][0])
 
 
 if __name__ == '__main__':
     # tf.app.run()
-    p = Population(2)
-    print(p.flatten())
-    print(p.get_genome(0)._gene)
+    size = 2
+    p = Population(size)
+    print_debug("---- Genome Info ----")
+    print_debug(p.flatten())
+    print_debug(p.get_genome(0)._gene)
+
+    print_debug("---- Input ----")
+    input = np.array([[[1 for _ in range(Genome.NUM_FEATURE)]] for _ in range(size)])
+    print("---- Input ----")
+    print(input)
+    print_debug(input)
+
+    print_debug("---- Eval ----")
+    output = p.eval(input)
+    print("---- output ----")
+    print(output)
