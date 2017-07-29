@@ -27,6 +27,13 @@ STEP = 200            # 200
 GENERATION = 1000     # 1000
 NUM_FOOD = 50         # 50
 NUM_POISON = 0        # 0
+MUTATION_BIAS = 0.1
+SENSOR_LENGTH_WALL = 40
+SENSOR_LENGTH_FOOD = 40
+SENSOR_LENGTH_POISON = 40
+AGENT_RADIUS = 5
+FOOD_RADIUS = 2
+POISON_RADIUS = 2
 
 
 class Genome(object):
@@ -80,7 +87,7 @@ class Genome(object):
             if rand[i] <= self._mutation_rate:
                 val = np.random.rand() - np.random.rand()
                 print_debug("mutate[%d] = %f" % (i, val))
-                mutate[i] = val
+                mutate[i] = val * MUTATION_BIAS
             else:
                 mutate[i] = 0.0
 
@@ -170,6 +177,21 @@ class GenePool(object):
         self._nn = None
         self._shuffle_arr = [i for i in range(self._size)]
 
+    def save_population(self):
+        import datetime
+        ts = datetime.datetime.now().strftime("%H%M%S")
+        filename = './data/population_{}_{}.npy'.format(ts, self._generation)
+        population = [[genome._gene, genome.get_fitness()] for genome in self._population]
+        np.save(filename, population)
+
+    def load_population(self, filename):
+        arr = np.load(filename)
+        for index, item in enumerate(arr):
+            gene, fitness = item
+            genome = self._population[index]  # type Genome
+            genome.set_gene(gene)
+            genome.set_fitness(fitness)
+
     def get_genome(self, index):
         # type: (int) -> Genome
         return self._population[index]
@@ -208,6 +230,7 @@ class GenePool(object):
                 genome.mutate()
 
     def selection(self):
+        self._generation += 1
         self._tournament_selection()
 
     def _tournament_selection(self):
@@ -247,17 +270,17 @@ class World(object):
         self._id = id
         self._width = WIDTH
         self._height = HEIGHT
-        self._agent_radius = 5  # エージェントの半径
+        self._agent_radius = AGENT_RADIUS  # エージェントの半径
         self._agent_speed = 5
         self._agent_step_theta = math.pi / 18  # (rad) 1stepでの最大回転角度(10度)
-        self._agent_sensor_strength_wall = 20
-        self._agent_sensor_strength_food = 20
-        self._agent_sensor_strength_poison = 20
+        self._agent_sensor_strength_wall = SENSOR_LENGTH_WALL
+        self._agent_sensor_strength_food = SENSOR_LENGTH_FOOD
+        self._agent_sensor_strength_poison = SENSOR_LENGTH_POISON
         self._food_point = 10
         self._poison_point = -10
 
-        self._food_radius = 2
-        self._poison_radius = 2
+        self._food_radius = FOOD_RADIUS
+        self._poison_radius = POISON_RADIUS
 
     def init(self, foods, poisons):
         self._agent_position = [200, 200]  # スタート位置
@@ -305,6 +328,7 @@ class World(object):
         next_y = min(self._height, max(0, next_y))
         self._agent_position[self.POSITION_X] = next_x
         self._agent_position[self.POSITION_Y] = next_y
+        return next_x - current_x, next_y - current_y
 
     def _sensor_diff(self, p1, p2):
         p1x = p1[self.POSITION_X]
@@ -396,6 +420,8 @@ def run(gp, generation, size, step):
 
     for i in range(generation):
         print("# Generation: %d" % i)
+        if i % 10 == 0:
+            gp.save_population()
         # gp.print_all_genome()
 
         # init world
@@ -407,7 +433,9 @@ def run(gp, generation, size, step):
         with sess.as_default():
             tf.global_variables_initializer().run()
             input = np.zeros(Genome.NUM_FEATURE * size)
+
             for _ in range(step):
+                move_arr = []
                 # set input array
                 start = 0
                 for world in worlds:
@@ -420,7 +448,8 @@ def run(gp, generation, size, step):
                 command = gp.play(input_placeholder)
                 for index, world in enumerate(worlds):
                     cmd = command[index]
-                    world.move(cmd)
+                    diff_x, diff_y = world.move(cmd)
+                    move_arr.append([diff_x, diff_y])
                     world.eat()
 
             # set fitness
@@ -435,15 +464,90 @@ def run(gp, generation, size, step):
             gp.mutation(elite_index=elite_index)
 
 
+def play(gp, size, step, file, index):
+    foods = World.meals(NUM_FOOD)
+    poisons = World.meals(NUM_POISON)
+    worlds = [World(i) for i in range(size)]
+
+    gp.init_world()
+    for world in worlds:
+        world.init(foods.copy(), poisons.copy())
+
+    gp.load_population(file)
+
+    import Tkinter as tk
+    c0 = tk.Canvas(width=WIDTH, height=HEIGHT)
+    c0.pack()
+    # create agent
+    agent_tag = 'agent'
+    x1 = WIDTH / 2 - AGENT_RADIUS / 2
+    y1 = HEIGHT / 2 - AGENT_RADIUS / 2
+    x2 = WIDTH / 2 + AGENT_RADIUS / 2
+    y2 = HEIGHT / 2 + AGENT_RADIUS / 2
+    c0.create_oval(x1, y1, x2, y2, fill='#ff0000', tags=agent_tag)
+    # create food
+    for index, food in enumerate(foods):
+        x, y = food
+        x1 = x - FOOD_RADIUS / 2
+        y1 = y - FOOD_RADIUS / 2
+        x2 = x + FOOD_RADIUS / 2
+        y2 = y + FOOD_RADIUS / 2
+        tag = "food%d" % index
+        c0.create_oval(x1, y1, x2, y2, fill='#000000', tags=tag)
+
+    sess = tf.Session()
+    with sess.as_default():
+        tf.global_variables_initializer().run()
+        for _ in range(step):
+            # set input array
+            start = 0
+            for world in worlds:
+                inp = world.sensing()
+                end = start + len(inp)
+                input[start:end] = inp
+                start = end
+
+            input_placeholder = np.reshape(input, (size, 1, Genome.NUM_FEATURE))
+            command = gp.play(input_placeholder)
+            cmd = command[index]
+            x, y = world[index].move(cmd)
+            world[index].eat()
+
+            time.sleep(0.1)
+            c0.move(agent_tag, x, y)
+            c0.update()
+
+    tk.mainloop()
+
+
+def show(filename):
+    arr = np.load(filename)
+    for item in arr:
+        print(list(item))
+
+
+tf.app.flags.DEFINE_string("command", "train", "train, play, show")
+tf.app.flags.DEFINE_string("file", "./data/population.npy", "Population file")
+tf.app.flags.DEFINE_integer("index", 0, "Agent index")
+
+
 def main(args):
+    flags = tf.app.flags.FLAGS
+
     time_start = time.time()
     np.random.seed(0)
-
     generation = GENERATION
     step = STEP  # 各個体が何ステップ動くか
     size = POPULATION_SIZE  # Population size
     gp = GenePool(size)
-    run(gp, generation, size, step)
+
+    if flags.command == 'train':
+        run(gp, generation, size, step)
+    elif flags.command == 'play':
+        play(gp, size, step, flags.file, flags.index)
+    elif flags.command == 'show':
+        show(flags.file)
+
     time_end = time.time()
     print("time: {}s".format(time_end - time_start))
 
