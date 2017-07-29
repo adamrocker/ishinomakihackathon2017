@@ -19,6 +19,14 @@ def print_debug(msg):
         print(msg)
 
 
+SELECTION_SIZE = 4    # 6
+POPULATION_SIZE = 10  # 20
+STEP = 200            # 200
+GENERATION = 1000     # 1000
+NUM_FOOD = 100         # 50
+NUM_POISON = 0        # 0
+
+
 class Genome(object):
 
     NUM_FEATURE = 6  # [壁距離, 壁角度, 餌距離, 餌角度, 敵距離, 敵距離]  # それぞれ1つしか認識できない
@@ -151,7 +159,7 @@ class GenePool(object):
 
     def __init__(self, size):
         self._generation = 0  # 世代数
-        self._selection_size = 4
+        self._selection_size = SELECTION_SIZE
         self._size = size
         self._population = []  # List[Genome]
         for i in range(size):
@@ -330,22 +338,24 @@ class World(object):
         pos = self._agent_position
 
         # 餌との接触
-        eat_area_food = self._agent_radius + self._food_radius
-        food_diff_arr = [self._sensor_diff(pos, food) for food in self._foods]
-        fd, fr, findex = self._get_min_sensor_diff(food_diff_arr, eat_area_food)
-        if 0 <= findex:
-            # print("agent[{}].eat: food[{}]".format(self._id, findex))
-            self._foods.pop(findex)
-            self._agent_fitness += self._food_point
+        if 0 < len(self._foods):
+            eat_area_food = self._agent_radius + self._food_radius
+            food_diff_arr = [self._sensor_diff(pos, food) for food in self._foods]
+            fd, fr, findex = self._get_min_sensor_diff(food_diff_arr, eat_area_food)
+            if 0 <= findex:
+                # print("agent[{}].eat: food[{}]".format(self._id, findex))
+                self._foods.pop(findex)
+                self._agent_fitness += self._food_point
 
         # 毒との接触
-        eat_area_poison = self._agent_radius + self._food_radius
-        poison_diff_arr = [self._sensor_diff(pos, poison) for poison in self._poisons]
-        pd, pr, pindex = self._get_min_sensor_diff(poison_diff_arr, eat_area_poison)
-        if 0 <= pindex:
-            # print("agent[{}].eat: poison[{}]".format(self._id, pindex))
-            self._poisons.pop(pindex)
-            self._agent_fitness += self._poison_point
+        if 0 < len(self._poisons):
+            eat_area_poison = self._agent_radius + self._food_radius
+            poison_diff_arr = [self._sensor_diff(pos, poison) for poison in self._poisons]
+            pd, pr, pindex = self._get_min_sensor_diff(poison_diff_arr, eat_area_poison)
+            if 0 <= pindex:
+                # print("agent[{}].eat: poison[{}]".format(self._id, pindex))
+                self._poisons.pop(pindex)
+                self._agent_fitness += self._poison_point
 
     def sensing(self):
         pos = self._agent_position
@@ -379,8 +389,8 @@ class World(object):
 
 
 def run(gp, generation, size, step):
-    num_food = 100
-    num_poison = 20
+    num_food = NUM_FOOD
+    num_poison = NUM_POISON
     foods = World.meals(num_food)
     poisons = World.meals(num_poison)
     worlds = [World(i) for i in range(size)]
@@ -430,9 +440,9 @@ def main(args):
     time_start = time.time()
     np.random.seed(0)
 
-    generation = 100
-    step = 200  # 各個体が何ステップ動くか
-    size = 100  # Population size
+    generation = GENERATION
+    step = STEP  # 各個体が何ステップ動くか
+    size = POPULATION_SIZE  # Population size
     gp = GenePool(size)
     run(gp, generation, size, step)
     time_end = time.time()
