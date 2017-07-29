@@ -9,7 +9,7 @@ import math
 import sys
 sys.path.append('/lib/python2.7/site-packages')
 
-
+import random
 import numpy as np
 import tensorflow as tf
 
@@ -151,13 +151,14 @@ class GenePool(object):
 
     def __init__(self, size):
         self._generation = 0  # 世代数
-        self._selection_size = 2
+        self._selection_size = 4
         self._size = size
-        self._population = []
+        self._population = []  # List[Genome]
         for i in range(size):
             self._population.append(Genome())
 
         self._nn = None
+        self._shuffle_arr = [i for i in range(self._size)]
 
     def get_genome(self, index):
         # type: (int) -> Genome
@@ -173,29 +174,57 @@ class GenePool(object):
     def play(self, input):
         return self._nn.eval(input=input)
 
-    def mutation(self):
-        for genome in self._population:
-            genome.mutate()
+    def set_fitness(self, index, fitness):
+        self._population[index].set_fitness(fitness)
+
+    def get_fitness(self, index):
+        return self._population[index].get_fitness()
+
+    def get_elite_index(self):
+        elite_index = 0
+        elite_fitness = 0
+        for index, genome in enumerate(self._population):
+            fit = genome.get_fitness()
+            if elite_fitness < fit:
+                elite_fitness = fit
+                elite_index = index
+
+        return elite_index
+
+    def mutation(self, elite_index=-1):
+        for index, genome in enumerate(self._population):
+            if index != elite_index:
+                # print("Mutate[{}]: fitness={}".format(index, genome.get_fitness()))
+                genome.mutate()
 
     def selection(self):
         self._tournament_selection()
 
     def _tournament_selection(self):
-        index_arr = np.random.randint(0, self._size, self._selection_size)
-        winner = self._population[0]  # type: Genome
+        random.shuffle(self._shuffle_arr)
+        index_arr = self._shuffle_arr[0: self._selection_size]
+        # print("tournament_index: {}".format(index_arr))
+        winner = self._population[index_arr[0]]  # type: Genome
         losers = []  # List[Genome]
         for i in range(1, self._selection_size):
             winner_fitness = winner.get_fitness()
             challenger_index = index_arr[i]
+            # print("challenger_index: {}".format(challenger_index))
             challenger = self._population[challenger_index]  # type: Genome
             challenger_fitness = challenger.get_fitness()
             if winner_fitness < challenger_fitness:
-                losers.append(winner)
+                loser = winner
                 winner = challenger
+                losers.append(loser)
+            else:
+                losers.append(challenger)
+
+        # print("winner:loser = {}:{}".format(winner.get_fitness(), [loser.get_fitness() for loser in losers]))
 
         for loser in losers:  # type: Genome
             winners_gene = winner.copy_gene()
             loser.set_gene(winners_gene)
+            loser.set_fitness(winner.get_fitness())
 
         return
 
@@ -207,35 +236,41 @@ class World(object):
     WIDTH = 400
     HEIGHT = 400
 
-    def __init__(self, foods, poisons, id=0):
+    def __init__(self, id=0):
         self._id = id
         self._width = World.WIDTH
         self._height = World.HEIGHT
         self._agent_radius = 5  # エージェントの半径
         self._agent_speed = 10
         self._agent_step_theta = math.pi / 18  # (rad) 1stepでの最大回転角度(10度)
-        self._agent_position = [200, 200]  # スタート位置
-        self._agent_direction = 0  # 向いている方向(rad)
         self._agent_sensor_strength_wall = 20
         self._agent_sensor_strength_food = 20
         self._agent_sensor_strength_poison = 20
-        self._agent_fitness = 0
         self._food_point = 10
         self._poison_point = -10
+
+        self._food_radius = 2
+        self._poison_radius = 2
+
+    def init(self, foods, poisons):
+        self._agent_position = [200, 200]  # スタート位置
+        self._agent_direction = 0  # 向いている方向(rad)
+        self._agent_fitness = 0
         self._foods = []  # [[1, 1], [1, 2]]  # foodの位置
         for food in foods:
             self._foods.append(list(food))
         self._poisons = []  # [[10, 11], [12, 13]]  # 毒位置
         for poison in poisons:
             self._poisons.append(list(poison))
-        self._food_radius = 2
-        self._poison_radius = 2
 
     @staticmethod
     def meals(num):
         arr = np.random.rand(num * 2) * World.WIDTH
         meals = np.reshape(arr, (num, 2))
         return meals.astype(np.int32)
+
+    def get_fitness(self):
+        return self._agent_fitness
 
     def _move_length(self, left, right):
         diff = right - left  # 右方向が正
@@ -299,7 +334,8 @@ class World(object):
         food_diff_arr = [self._sensor_diff(pos, food) for food in self._foods]
         fd, fr, findex = self._get_min_sensor_diff(food_diff_arr, eat_area_food)
         if 0 <= findex:
-            food = self._foods.pop(findex)
+            # print("agent[{}].eat: food[{}]".format(self._id, findex))
+            self._foods.pop(findex)
             self._agent_fitness += self._food_point
 
         # 毒との接触
@@ -307,7 +343,8 @@ class World(object):
         poison_diff_arr = [self._sensor_diff(pos, poison) for poison in self._poisons]
         pd, pr, pindex = self._get_min_sensor_diff(poison_diff_arr, eat_area_poison)
         if 0 <= pindex:
-            poison = self._poisons.pop(pindex)
+            # print("agent[{}].eat: poison[{}]".format(self._id, pindex))
+            self._poisons.pop(pindex)
             self._agent_fitness += self._poison_point
 
     def sensing(self):
@@ -342,15 +379,21 @@ class World(object):
 
 
 def run(gp, generation, size, step):
-    num_food = 5
-    num_poison = 5
+    num_food = 100
+    num_poison = 20
     foods = World.meals(num_food)
     poisons = World.meals(num_poison)
-    worlds = [World(foods.copy(), poisons.copy(), i) for i in range(size)]
+    worlds = [World(i) for i in range(size)]
 
     for i in range(generation):
         print("# Generation: %d" % i)
+        # gp.print_all_genome()
+
+        # init world
         gp.init_world()
+        for world in worlds:
+            world.init(foods.copy(), poisons.copy())
+
         sess = tf.Session()
         with sess.as_default():
             tf.global_variables_initializer().run()
@@ -365,7 +408,6 @@ def run(gp, generation, size, step):
                     start = end
 
                 input_placeholder = np.reshape(input, (size, 1, Genome.NUM_FEATURE))
-                # input = np.array([[[1 for _ in range(Genome.NUM_FEATURE)]] for _ in range(size)])
                 command = gp.play(input_placeholder)
                 for index, world in enumerate(worlds):
                     cmd = command[index]
@@ -373,17 +415,24 @@ def run(gp, generation, size, step):
                     world.eat()
 
             # set fitness
+            for index, world in enumerate(worlds):
+                fit = world.get_fitness()
+                print("Genome[{}]: fitness={}".format(index, fit))
+                gp.set_fitness(index, fit)
+
             gp.selection()
-            gp.mutation()
+
+            elite_index = gp.get_elite_index()  # elete strategy
+            gp.mutation(elite_index=elite_index)
 
 
 def main(args):
     time_start = time.time()
     np.random.seed(0)
 
-    generation = 1
-    step = 500  # 各個体が何ステップ動くか
-    size = 2  # Population size
+    generation = 100
+    step = 200  # 各個体が何ステップ動くか
+    size = 100  # Population size
     gp = GenePool(size)
     run(gp, generation, size, step)
     time_end = time.time()
