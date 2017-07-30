@@ -395,31 +395,48 @@ class World(object):
 
         return distance, radian, index
 
+    def _collision(self, target_arr, sensor_length):
+        index = -1
+
+        for i, item in enumerate(target_arr):
+            d, r = item
+            if sensor_length <= d:
+                continue
+
+            return i
+
+        return index
+
     def eat(self, print_log=False):
         # エージェントにぶつかったら食べる
         pos = self._agent_position
 
+        eaten_food = None
         # 餌との接触
         if 0 < len(self._foods):
             eat_area_food = self._agent_radius + self._food_radius
             food_diff_arr = [self._sensor_diff(pos, food) for food in self._foods]
-            fd, fr, findex = self._get_min_sensor_diff(food_diff_arr, eat_area_food)
+            findex = self._collision(food_diff_arr, eat_area_food)
             if 0 <= findex:
+                eaten_food = self._foods.pop(findex)
                 if print_log:
-                    print("eat: food[{}]".format(findex))
-                self._foods.pop(findex)
+                    print("eat: food[{}]={}".format(findex, eaten_food))
                 self._agent_fitness += self._food_point
 
+        eaten_poison = None
         # 毒との接触
         if 0 < len(self._poisons):
             eat_area_poison = self._agent_radius + self._food_radius
             poison_diff_arr = [self._sensor_diff(pos, poison) for poison in self._poisons]
-            pd, pr, pindex = self._get_min_sensor_diff(poison_diff_arr, eat_area_poison)
+            pindex = self._collision(poison_diff_arr, eat_area_poison)
             if 0 <= pindex:
+                eaten_poison = self._poisons.pop(pindex)
                 if print_log:
-                    print("eat: poison[{}]".format(pindex))
-                self._poisons.pop(pindex)
+                    print("eat: poison[{}]={}".format(pindex, eaten_poison))
+
                 self._agent_fitness += self._poison_point
+
+        return eaten_food, eaten_poison
 
     def sensing(self):
         pos = self._agent_position
@@ -549,7 +566,7 @@ def play(gp, size, step, file, id, meal_file):
         y1 = y - FOOD_RADIUS / 2
         x2 = x + FOOD_RADIUS / 2
         y2 = y + FOOD_RADIUS / 2
-        tag = "food%d" % index
+        tag = "food{}".format(food)
         c0.create_oval(x1, y1, x2, y2, fill='#000000', tags=tag)
 
     sess = tf.Session()
@@ -576,7 +593,10 @@ def play(gp, size, step, file, id, meal_file):
             x, y = worlds[id].move(cmd)
             print("in: {}, out: {}".format(spy_inpu, cmd))
             # print("move=[{}, {}]".format(x, y))
-            worlds[id].eat(print_log=True)
+            food, poison = worlds[id].eat(print_log=True)
+            if food:
+                tag = "food{}".format(food)
+                c0.delete(tag)
 
             time.sleep(0.1)
             c0.move(agent_tag, x, y)
