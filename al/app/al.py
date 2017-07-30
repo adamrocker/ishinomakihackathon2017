@@ -537,6 +537,16 @@ def train(gp, generation, size, step):
             gp.mutation(elite_index=elite_index)
 
 
+def _draw_circle(c0, food, color="#ffffff"):
+    x, y = food
+    x1 = x - FOOD_RADIUS / 2
+    y1 = y - FOOD_RADIUS / 2
+    x2 = x + FOOD_RADIUS / 2
+    y2 = y + FOOD_RADIUS / 2
+    tag = "food{}".format(food)
+    c0.create_oval(x1, y1, x2, y2, fill=color, outline=color, tags=tag)
+
+
 def play(gp, size, step, file, id, meal_file):
     foods, poisons = load_meal(meal_file)
     # foods = World.meals(NUM_FOOD, WIDTH)
@@ -567,6 +577,7 @@ def play(gp, size, step, file, id, meal_file):
         x2 = x + FOOD_RADIUS / 2
         y2 = y + FOOD_RADIUS / 2
         tag = "food{}".format(food)
+        print("create food: {}".format(tag))
         c0.create_oval(x1, y1, x2, y2, fill='#000000', tags=tag)
 
     sess = tf.Session()
@@ -596,7 +607,9 @@ def play(gp, size, step, file, id, meal_file):
             food, poison = worlds[id].eat(print_log=True)
             if food:
                 tag = "food{}".format(food)
-                c0.delete(tag)
+                print("delete:{}".format(tag))
+                # c0.delete(tag)
+                _draw_circle(c0, food)
 
             time.sleep(0.1)
             c0.move(agent_tag, x, y)
